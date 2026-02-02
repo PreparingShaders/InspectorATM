@@ -37,7 +37,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Отправьте сообщение, начинающееся с 6 цифр."
     )
 
-
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверяем авторизацию только в приватных чатах
     if update.effective_chat.type == 'private' and not is_authorized(update.effective_user.id):
@@ -45,11 +44,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = update.message
 
+    # Проверяем, что сообщение начинается с ID банкомата (6 цифр)
     if message.text and SIX_DIGITS_PATTERN.match(message.text):
-        code = message.text[:6]  # Извлекаем 6 цифр
-
-        # Получаем комментарий (сообщение без 6 цифр)
-        comment = message.text[6:].strip()
+        atm_id = message.text[:6]  # Извлекаем 6 цифр (ID банкомата)
+        comment = message.text[6:].strip()  # Остальное - комментарий
 
         # Форматируем информацию о пользователе
         user_info = format_user_info(message.from_user)
@@ -58,12 +56,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_title = message.chat.title or "Private Chat"
 
         # Сохраняем в базу с проверкой на дубликаты
-        if db.insert_message(code, user_info, chat_title, comment):
-            await message.reply_text("Код сохранен в базе данных!")
+        if db.insert_message(atm_id, chat_title, user_info, comment):
+            await message.reply_text("Сообщение сохранено в базе данных!")
         else:
             await message.reply_text("Это сообщение уже было сохранено в течение последних 2 часов.")
-
-
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"Ошибка: {context.error}")
 

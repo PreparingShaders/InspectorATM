@@ -12,5 +12,4 @@ __pycache__/
 *.db
 .env
 .venv/
-database.py
 messages.db
