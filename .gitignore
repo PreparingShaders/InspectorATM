@@ -1,2 +1,16 @@
-/.env
-/.venv/
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Системные файлы
+.DS_Store
+__pycache__/
+*.pyc
+
+# База данных
+*.db
+.env
+.venv/
+database.py
+messages.db
