@@ -4,13 +4,12 @@ from datetime import datetime, timedelta
 
 class Database:
     def __init__(self, db_name="messages.db"):
-        """Инициализирует подключение к базе данных"""
-        self.conn = sqlite3.connect(db_name)
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
 
     def create_tables(self):
-        """Создает таблицы в базе данных, если их еще нет"""
+        """Структура: id, datetime, atm_id, chat_title, user_info, comment"""
         with self.conn:
             self.conn.execute("""
                               CREATE TABLE IF NOT EXISTS messages
@@ -20,7 +19,7 @@ class Database:
                                   PRIMARY
                                   KEY
                                   AUTOINCREMENT,
-                                  date_time
+                                  datetime
                                   DATETIME
                                   DEFAULT
                                   CURRENT_TIMESTAMP,
@@ -41,91 +40,88 @@ class Database:
                               )
                               """)
             self.conn.execute("""
-                              CREATE INDEX IF NOT EXISTS idx_atm_datetime
-                                  ON messages (atm_id, date_time)
+                              CREATE INDEX IF NOT EXISTS idx_atm_datetime ON messages (atm_id, datetime)
                               """)
 
-    def insert_message(self, atm_id, chat_title, user_info, comment=""):
-        """
-        Сохраняет сообщение в базу данных с проверкой на дубликаты
-
-        Возвращает True, если сообщение сохранено, False - если дубликат
-        """
-        # Проверяем, есть ли такое же сообщение в течение последних 2 часов
-        two_hours_ago = datetime.now() - timedelta(hours=2)
-
+    def insert_message(self, atm_id, user_info, chat_title, comment=""):
+        """Обычная вставка с проверкой на дубликат (2 часа)"""
         cursor = self.conn.execute("""
                                    SELECT 1
                                    FROM messages
                                    WHERE atm_id = ?
-                                     AND chat_title = ?
-                                     AND user_info = ?
-                                     AND comment = ?
-                                     AND date_time > ?
-                                   """, (atm_id, chat_title, user_info, comment, two_hours_ago))
+                                     AND datetime > datetime('now', '-2 hours') LIMIT 1
+                                   """, (atm_id,))
 
         if cursor.fetchone() is not None:
-            return False  # Дубликат найден
+            return False
 
-        # Сохраняем сообщение
         with self.conn:
             self.conn.execute("""
                               INSERT INTO messages (atm_id, chat_title, user_info, comment)
                               VALUES (?, ?, ?, ?)
                               """, (atm_id, chat_title, user_info, comment))
-
         return True
 
-    def get_all_messages(self):
-        """Возвращает все сообщения из базы данных"""
-        cursor = self.conn.execute("""
-                                   SELECT id, date_time, atm_id, chat_title, user_info, comment
-                                   FROM messages
-                                   ORDER BY date_time DESC
-                                   """)
+    def insert_history_message(self, atm_id, user_info, chat_title, comment, dt_string):
+        """Метод для импорта (без проверок на дубликаты по времени)"""
+        with self.conn:
+            # ВАЖНО: порядок полей должен строго соответствовать VALUES
+            self.conn.execute("""
+                              INSERT INTO messages (atm_id, chat_title, user_info, comment, datetime)
+                              VALUES (?, ?, ?, ?, ?)
+                              """, (atm_id, chat_title, user_info, comment, dt_string))
+
+    def get_stats_by_chat(self, date_from, date_to):
+        """Статистика для отчетов по количеству"""
+        query = """
+                SELECT chat_title, COUNT(*) as count
+                FROM messages
+                WHERE datetime >= ? AND datetime <= ?
+                GROUP BY chat_title
+                ORDER BY count DESC \
+                """
+        cursor = self.conn.execute(query, [date_from, date_to])
         return cursor.fetchall()
 
-    def get_messages_by_atm(self, atm_id):
-        """Возвращает сообщения по ID банкомата"""
-        cursor = self.conn.execute("""
-                                   SELECT id, date_time, atm_id, chat_title, user_info, comment
-                                   FROM messages
-                                   WHERE atm_id = ?
-                                   ORDER BY date_time DESC
-                                   """, (atm_id,))
-        return cursor.fetchall()
+    def count_messages(self, atm_id=None, chat_title=None, date_from=None):
+        query = "SELECT COUNT(*) FROM messages WHERE 1=1"
+        params = []
+        if atm_id:
+            query += " AND atm_id = ?";
+            params.append(atm_id)
+        if chat_title:
+            query += " AND chat_title LIKE ?";
+            params.append(f"%{chat_title}%")
+        if date_from:
+            query += " AND datetime >= ?";
+            params.append(date_from)
 
-    def get_messages_by_chat(self, chat_title):
-        """Возвращает сообщения по названию чата"""
-        cursor = self.conn.execute("""
-                                   SELECT id, date_time, atm_id, chat_title, user_info, comment
-                                   FROM messages
-                                   WHERE chat_title LIKE ?
-                                   ORDER BY date_time DESC
-                                   """, (f'%{chat_title}%',))
-        return cursor.fetchall()
+        cursor = self.conn.execute(query, params)
+        return cursor.fetchone()[0]
 
-    def get_messages_by_user(self, user_info):
-        """Возвращает сообщения по пользователю"""
-        cursor = self.conn.execute("""
-                                   SELECT id, date_time, atm_id, chat_title, user_info, comment
-                                   FROM messages
-                                   WHERE user_info LIKE ?
-                                   ORDER BY date_time DESC
-                                   """, (f'%{user_info}%',))
-        return cursor.fetchall()
+    def search_messages(self, atm_id=None, chat_title=None, date_from=None):
+        query = "SELECT id, datetime, atm_id, user_info, chat_title, comment FROM messages WHERE 1=1"
+        params = []
+
+        if atm_id:
+            query += " AND atm_id = ?"
+            params.append(atm_id)
+        if chat_title:
+            query += " AND chat_title LIKE ?"
+            params.append(f"%{chat_title}%")
+        if date_from:
+            query += " AND datetime >= ?"
+            params.append(date_from)
+
+        query += " ORDER BY datetime DESC"
+        cursor = self.conn.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
     def get_messages_in_last_hours(self, hours=24):
-        """Возвращает сообщения за последние N часов"""
-        time_threshold = datetime.now() - timedelta(hours=hours)
-        cursor = self.conn.execute("""
-                                   SELECT id, date_time, atm_id, chat_title, user_info, comment
-                                   FROM messages
-                                   WHERE date_time > ?
-                                   ORDER BY date_time DESC
-                                   """, (time_threshold,))
-        return cursor.fetchall()
+        time_threshold = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+        query = "SELECT * FROM messages WHERE datetime > ? ORDER BY datetime DESC"
+        cursor = self.conn.execute(query, (time_threshold,))
+        return [dict(row) for row in cursor.fetchall()]
 
     def close(self):
-        """Закрывает подключение к базе данных"""
         self.conn.close()
